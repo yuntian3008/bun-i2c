@@ -22,12 +22,13 @@ const IS_64BIT: boolean = process.arch === "arm64" || process.arch === "x64";
 // ---------------------------------------------------------------------------
 // Normalised native interface — always uses plain number, regardless of arch.
 // BigInt↔number conversion lives here, not scattered through the class.
+// Uses Buffer (not ptr) so mocks can populate read buffers in tests.
 // ---------------------------------------------------------------------------
-interface NativeI2C {
+export interface NativeI2C {
   open(path: number, flags: number): number;
   ioctl(fd: number, req: number, arg: number): number;
-  read(fd: number, buf: number, count: number): number;
-  write(fd: number, buf: number, count: number): number;
+  read(fd: number, buf: Buffer, count: number): number;
+  write(fd: number, buf: Buffer, count: number): number;
   close(fd: number): number;
 }
 
@@ -45,8 +46,8 @@ function loadNative(): NativeI2C {
       open: (path, flags) => symbols.open(path, flags),
       ioctl: (fd, req, arg) => symbols.ioctl(fd, BigInt(req), BigInt(arg)),
       // Number() is safe: read/write return values fit well within 2^53
-      read: (fd, buf, count) => Number(symbols.read(fd, buf, BigInt(count))),
-      write: (fd, buf, count) => Number(symbols.write(fd, buf, BigInt(count))),
+      read: (fd, buf, count) => Number(symbols.read(fd, ptr(buf), BigInt(count))),
+      write: (fd, buf, count) => Number(symbols.write(fd, ptr(buf), BigInt(count))),
       close: (fd) => symbols.close(fd),
     };
   } else {
@@ -61,8 +62,8 @@ function loadNative(): NativeI2C {
     return {
       open: (path, flags) => symbols.open(path, flags),
       ioctl: (fd, req, arg) => symbols.ioctl(fd, req, arg),
-      read: (fd, buf, count) => symbols.read(fd, buf, count),
-      write: (fd, buf, count) => symbols.write(fd, buf, count),
+      read: (fd, buf, count) => symbols.read(fd, ptr(buf), count),
+      write: (fd, buf, count) => symbols.write(fd, ptr(buf), count),
       close: (fd) => symbols.close(fd),
     };
   }
@@ -83,19 +84,27 @@ export class BunI2C {
   /**
    * Opens the I2C bus device file with O_RDWR.
    * @param busPath Path to the I2C bus device (default: "/dev/i2c-1").
+   * @param nativeImpl Optional native impl for testing; uses libc when omitted.
    * @throws If the underlying open() syscall fails.
    */
-  constructor(busPath: string = "/dev/i2c-1") {
+  constructor(
+    busPath: string = "/dev/i2c-1",
+    nativeImpl?: NativeI2C
+  ) {
+    const impl: NativeI2C = nativeImpl ?? native;
     // open() requires a null-terminated C string; append \0 explicitly.
     const pathBuf: Buffer = Buffer.from(busPath + "\0");
-    const fd: number = native.open(ptr(pathBuf), O_RDWR);
+    const fd: number = impl.open(ptr(pathBuf), O_RDWR);
     if (fd < 0) {
       throw new Error(
         `BunI2C: Failed to open I2C bus '${busPath}' (errno fd=${fd})`
       );
     }
     this.fd = fd;
+    this._impl = impl;
   }
+
+  private _impl: NativeI2C;
 
   /**
    * Selects the target I2C device for subsequent read/write operations.
@@ -103,7 +112,7 @@ export class BunI2C {
    * @throws If the ioctl(I2C_SLAVE) syscall fails.
    */
   public setAddress(address: number): void {
-    const result: number = native.ioctl(this.fd, I2C_SLAVE, address);
+    const result: number = this._impl.ioctl(this.fd, I2C_SLAVE, address);
     if (result < 0) {
       throw new Error(
         `BunI2C: ioctl(I2C_SLAVE) failed for address 0x${address.toString(16).toUpperCase()} (result=${result})`
@@ -119,7 +128,7 @@ export class BunI2C {
   public writeBuffer(data: Uint8Array): void {
     // Buffer.from() copies the data so the GC-managed memory is stable for FFI.
     const buf: Buffer = Buffer.from(data);
-    const written: number = native.write(this.fd, ptr(buf), buf.length);
+    const written: number = this._impl.write(this.fd, buf, buf.length);
     if (written < 0) {
       throw new Error(`BunI2C: write() failed (result=${written})`);
     }
@@ -133,7 +142,7 @@ export class BunI2C {
    */
   public readBuffer(length: number): Uint8Array {
     const buf: Buffer = Buffer.alloc(length);
-    const bytesRead: number = native.read(this.fd, ptr(buf), length);
+    const bytesRead: number = this._impl.read(this.fd, buf, length);
     if (bytesRead < 0) {
       throw new Error(`BunI2C: read() failed (result=${bytesRead})`);
     }
@@ -146,7 +155,7 @@ export class BunI2C {
    * @throws If the close() syscall fails.
    */
   public close(): void {
-    const result: number = native.close(this.fd);
+    const result: number = this._impl.close(this.fd);
     // Mark as closed before throwing so a double-close is impossible.
     this.fd = -1;
     if (result < 0) {

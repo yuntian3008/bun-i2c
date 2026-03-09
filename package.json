@@ -1,6 +1,6 @@
 {
   "name": "bun-i2c",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Zero-dependency I2C wrapper for Bun using Linux syscalls via bun:ffi. No Node.js native addons.",
   "type": "module",
   "main": "./index.ts",
@@ -30,6 +30,9 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/yuntian3008/bun-i2c"
+  },
+  "scripts": {
+    "test": "bun test"
   },
   "engines": {
     "bun": ">=1.0.0"
