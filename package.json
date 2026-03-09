@@ -1,0 +1,40 @@
+{
+  "name": "bun-i2c",
+  "version": "0.0.0",
+  "description": "Zero-dependency I2C wrapper for Bun using Linux syscalls via bun:ffi. No Node.js native addons.",
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "exports": {
+    ".": {
+      "import": "./index.ts",
+      "types": "./index.ts"
+    }
+  },
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "bun",
+    "i2c",
+    "raspberry-pi",
+    "embedded",
+    "linux",
+    "ffi",
+    "ssd1306",
+    "oled"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yuntian3008/bun-i2c"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
